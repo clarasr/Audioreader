@@ -22,14 +22,33 @@ export function UploadScreen({ onBookReady }: Props) {
     setIsProcessing(true);
     setError(null);
     try {
+      // Upload the file first
+      const formData = new FormData();
+      formData.append('audioFile', file);
+
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const uploadResult = await uploadResponse.json();
+      const filePath = uploadResult.filePath;
+
+      // Now parse metadata and add the file path
       const book = await parseAudioFile(file);
+      const bookWithFilePath = { ...book, filePath };
+
       // Persist to backend
       await fetch('/api/books', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(book),
+        body: JSON.stringify(bookWithFilePath),
       });
-      onBookReady(book, file);
+      onBookReady(bookWithFilePath, file);
     } catch (e) {
       setError(`Failed to read file: ${String(e)}`);
       setIsProcessing(false);
