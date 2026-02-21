@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useLibrary } from './hooks/useLibrary.js';
 import { LibraryScreen } from './screens/LibraryScreen.js';
 import { BookDetailScreen } from './screens/BookDetailScreen.js';
@@ -32,6 +32,14 @@ export default function App() {
     setScreen({ name: 'player', book, chapterIndex, startPositionSeconds });
   }, [getFile]);
 
+  const playerFile = screen.name === 'player' ? getFile(screen.book.id) : null;
+
+  useEffect(() => {
+    if (screen.name === 'player' && !playerFile) {
+      setScreen({ name: 'bookDetail', book: screen.book });
+    }
+  }, [screen, playerFile]);
+
   switch (screen.name) {
     case 'library':
       return (
@@ -55,9 +63,7 @@ export default function App() {
       );
 
     case 'player': {
-      const file = getFile(screen.book.id);
-      if (!file) {
-        setScreen({ name: 'bookDetail', book: screen.book });
+      if (!playerFile) {
         return null;
       }
       return (
@@ -65,7 +71,7 @@ export default function App() {
           book={screen.book}
           chapterIndex={screen.chapterIndex}
           startPositionSeconds={screen.startPositionSeconds}
-          file={file}
+          file={playerFile}
           onBack={() => setScreen({ name: 'bookDetail', book: screen.book })}
         />
       );
@@ -79,4 +85,3 @@ export default function App() {
       );
   }
 }
-
