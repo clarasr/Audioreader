@@ -127,7 +127,7 @@ export function usePlayback(params: {
           ...prev,
           currentPositionSeconds: posInChapter,
           currentSentenceIndex: idx,
-          bufferedSeconds: transcriptionQueue.bufferedAhead(book.id, chapter.index, posInChapter, 0),
+          bufferedSeconds: queue.bufferedAhead(book.id, chapter.index, posInChapter, chapter.startSeconds),
         }));
       } else {
         // Still update position even if sentence didn't change (for progress bar)
