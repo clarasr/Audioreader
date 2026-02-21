@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import { GoogleGenAI } from '@google/genai';
 import * as dotenv from 'dotenv';
+import multer from 'multer'; // Import multer
 import type { TranscribeRequest, TranscribeResponse, TimestampedSentence } from '../src/types/index.js';
 
 dotenv.config({ path: '.env.local' });
@@ -14,6 +15,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.SERVER_PORT ?? 3001;
 const DB_PATH = path.join(__dirname, '../data/audioreader.db');
 const IS_PROD = process.env.NODE_ENV === 'production';
+const UPLOAD_DIR = path.join(__dirname, '../uploads'); // Create an uploads directory
+
+// ── Multer Configuration ───────────────────────────────────────────────────────
+// Make sure to install multer: npm install multer
+// And the types: npm install --save-dev @types/multer
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, UPLOAD_DIR)
+  },
+  filename: function (req, file, cb) {
+    // Note: this is not safe for production.
+    // You'd want to sanitize filenames and handle potential name collisions.
+    cb(null, `${Date.now()}-${file.originalname}`)
+  }
+});
+const upload = multer({ storage: storage });
 
 // ── Database ─────────────────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
@@ -32,7 +49,8 @@ db.exec(`
     last_opened_at INTEGER,
     last_chapter_index INTEGER,
     last_position_seconds REAL,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    file_path TEXT
   );
 
   CREATE TABLE IF NOT EXISTS transcriptions (
@@ -61,8 +79,8 @@ const stmts = {
   getBook:        db.prepare('SELECT * FROM books WHERE id = ?'),
   upsertBook:     db.prepare(`
     INSERT OR REPLACE INTO books
-      (id, title, author, cover_art_data_url, total_duration_ms, file_size_bytes, mime_type, chapters_json, last_opened_at, last_chapter_index, last_position_seconds)
-    VALUES (@id, @title, @author, @coverArtDataUrl, @totalDurationMs, @fileSizeBytes, @mimeType, @chaptersJson, @lastOpenedAt, @lastChapterIndex, @lastPositionSeconds)
+      (id, title, author, cover_art_data_url, total_duration_ms, file_size_bytes, mime_type, chapters_json, last_opened_at, last_chapter_index, last_position_seconds, file_path)
+    VALUES (@id, @title, @author, @coverArtDataUrl, @totalDurationMs, @fileSizeBytes, @mimeType, @chaptersJson, @lastOpenedAt, @lastChapterIndex, @lastPositionSeconds, @filePath)
   `),
   updateProgress: db.prepare(
     'UPDATE books SET last_opened_at = @now, last_chapter_index = @chapterIndex, last_position_seconds = @positionSeconds WHERE id = @id'
@@ -74,7 +92,7 @@ const stmts = {
   upsertTranscription: db.prepare(`
     INSERT OR REPLACE INTO transcriptions
       (book_id, chapter_index, chunk_index, chunk_start_seconds, chunk_duration_seconds, sentences_json)
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)\
   `),
   deleteBookTranscriptions: db.prepare('DELETE FROM transcriptions WHERE book_id = ?'),
   storageByBook:  db.prepare(`
@@ -100,9 +118,9 @@ Rules:
 }
 
 function parseTranscription(raw: string): TimestampedSentence[] {
-  const lines = raw.trim().split('\n');
+  const lines = raw.trim().split('\\n');
   const results: TimestampedSentence[] = [];
-  const re = /^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.+)$/;
+  const re = /^\\[(\\d+):(\\d{2})(?:\\.(\\d+))?\\]\\s*(.+)$/;
   const failedLines: Array<{ lineNumber: number; line: string }> = [];
 
   for (const [index, line] of lines.entries()) {
@@ -142,6 +160,7 @@ function parseTranscription(raw: string): TimestampedSentence[] {
 const app = express();
 app.use(cors({ origin: IS_PROD ? false : 'http://localhost:3000' }));
 app.use(express.json({ limit: '25mb' }));
+app.use('/uploads', express.static(UPLOAD_DIR)); // Serve uploaded files statically
 
 // POST /api/transcribe
 app.post('/api/transcribe', async (req, res) => {
@@ -207,8 +226,18 @@ app.post('/api/books', (req, res) => {
     fileSizeBytes: b.fileSizeBytes, mimeType: b.mimeType,
     chaptersJson: JSON.stringify(b.chapters),
     lastOpenedAt: null, lastChapterIndex: null, lastPositionSeconds: null,
+    filePath: b.filePath,
   });
   res.json({ success: true });
+});
+
+// POST /api/upload
+app.post('/api/upload', upload.single('audioFile'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded.' });
+  }
+  const filePath = `/uploads/${req.file.filename}`;
+  res.json({ success: true, filePath });
 });
 
 // PATCH /api/books/:id/progress
