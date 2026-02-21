@@ -102,14 +102,39 @@ Rules:
 function parseTranscription(raw: string): TimestampedSentence[] {
   const lines = raw.trim().split('\n');
   const results: TimestampedSentence[] = [];
-  const re = /^\[(\d{1,2}):(\d{2})(?:\.(\d+))?\]\s*(.+)$/;
-  for (const line of lines) {
-    const m = line.trim().match(re);
-    if (!m) continue;
+  const re = /^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.+)$/;
+  const failedLines: Array<{ lineNumber: number; line: string }> = [];
+
+  for (const [index, line] of lines.entries()) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) continue;
+
+    const m = trimmedLine.match(re);
+    if (!m) {
+      failedLines.push({ lineNumber: index + 1, line: trimmedLine });
+      continue;
+    }
+
     const timeSeconds = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseFloat(`0.${m[3]}`) : 0);
     const text = m[4].trim();
     if (text) results.push({ timeSeconds, text });
   }
+
+  if (failedLines.length > 0) {
+    console.warn('[parseTranscription] Skipped malformed timestamp lines', {
+      failedCount: failedLines.length,
+      totalLines: lines.length,
+      failedLines,
+    });
+  }
+
+  if (results.length === 0 && raw.trim()) {
+    console.error('[parseTranscription] No sentences parsed from model output', {
+      lineCount: lines.length,
+      raw,
+    });
+  }
+
   return results;
 }
 
