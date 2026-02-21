@@ -57,6 +57,10 @@ export function usePlayback(params: {
   const sentencesRef = useRef<TimestampedSentence[]>([]);
   sentencesRef.current = state.sentences;
 
+  // Keep a ref copy of current position to avoid setState side-effects in skip controls
+  const currentPositionRef = useRef<number>(startPositionSeconds);
+  currentPositionRef.current = state.currentPositionSeconds;
+
   // ── Bootstrap: create audio element + transcribe first chunk ─────────────
   useEffect(() => {
     let cancelled = false;
@@ -179,12 +183,20 @@ export function usePlayback(params: {
   }, [chapter.startSeconds, chapter.durationSeconds]);
 
   const skipForward = useCallback((seconds = 15) => {
-    setState(prev => { seekTo(prev.currentPositionSeconds + seconds); return prev; });
-  }, [seekTo]);
+    const audio = audioRef.current;
+    const currentPosition = audio
+      ? audio.currentTime - chapter.startSeconds
+      : currentPositionRef.current;
+    seekTo(currentPosition + seconds);
+  }, [chapter.startSeconds, seekTo]);
 
   const skipBackward = useCallback((seconds = 15) => {
-    setState(prev => { seekTo(prev.currentPositionSeconds - seconds); return prev; });
-  }, [seekTo]);
+    const audio = audioRef.current;
+    const currentPosition = audio
+      ? audio.currentTime - chapter.startSeconds
+      : currentPositionRef.current;
+    seekTo(currentPosition - seconds);
+  }, [chapter.startSeconds, seekTo]);
 
   const setPlaybackRate = useCallback((rate: number) => {
     if (audioRef.current) audioRef.current.playbackRate = rate;
