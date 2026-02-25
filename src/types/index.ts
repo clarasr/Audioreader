@@ -14,4 +14,5 @@ export interface BookMetadata {
   coverUrl?: string;
   chapters: Chapter[];
   fileUrl: string;
+  fileId?: string; // assigned by server after upload
 }

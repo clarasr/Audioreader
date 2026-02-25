@@ -1,31 +1,44 @@
 import { useState, useCallback } from 'react';
 import { BookMetadata } from './types';
 import { parseAudioBook } from './utils/metadata';
+import { uploadAudioFile } from './api/upload';
 import UploadZone from './components/UploadZone';
 import BookView from './components/BookView';
 
 export default function App() {
   const [book, setBook] = useState<BookMetadata | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleFileSelect = useCallback(
     async (file: File) => {
       setLoading(true);
       setError(null);
+      setUploadPercent(null);
+
+      if (book) {
+        if (book.coverUrl) URL.revokeObjectURL(book.coverUrl);
+        URL.revokeObjectURL(book.fileUrl);
+      }
+
       try {
-        // Clean up previous object URLs
-        if (book) {
-          if (book.coverUrl) URL.revokeObjectURL(book.coverUrl);
-          URL.revokeObjectURL(book.fileUrl);
-        }
-        const metadata = await parseAudioBook(file);
-        setBook(metadata);
+        // Parse metadata and upload to server in parallel
+        const [metadata, fileId] = await Promise.all([
+          parseAudioBook(file),
+          uploadAudioFile(file, setUploadPercent),
+        ]);
+        setBook({ ...metadata, fileId });
       } catch (err) {
         console.error(err);
-        setError('Could not read this audio file. Please try a different file.');
+        if (err instanceof Error && err.message.includes('upload')) {
+          setError('Could not upload the file to the server. Make sure the server is running.');
+        } else {
+          setError('Could not read this audio file. Please try a different file.');
+        }
       } finally {
         setLoading(false);
+        setUploadPercent(null);
       }
     },
     [book]
@@ -43,9 +56,23 @@ export default function App() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-950">
-        <div className="text-center">
+        <div className="text-center w-72">
           <div className="w-10 h-10 border-[3px] border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Reading metadata…</p>
+          {uploadPercent === null ? (
+            <p className="text-gray-400 text-sm">Reading metadata…</p>
+          ) : (
+            <>
+              <p className="text-gray-400 text-sm mb-3">
+                Uploading… {uploadPercent}%
+              </p>
+              <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-indigo-500 rounded-full transition-all duration-200"
+                  style={{ width: `${uploadPercent}%` }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -57,7 +84,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-950 p-8">
-      {/* Logo */}
       <div className="mb-2 flex items-center gap-2">
         <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center">
           <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">

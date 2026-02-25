@@ -6,4 +6,9 @@ export default defineConfig({
   optimizeDeps: {
     include: ['music-metadata-browser'],
   },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3001',
+    },
+  },
 });
