@@ -5,6 +5,12 @@ export interface Chapter {
   endTime?: number;  // seconds
 }
 
+export interface WordToken {
+  word: string;
+  start: number; // absolute seconds in the source file
+  end: number;
+}
+
 export interface BookMetadata {
   title: string;
   artist?: string;

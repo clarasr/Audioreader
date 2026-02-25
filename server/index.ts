@@ -1,3 +1,6 @@
+// Load .env before anything that reads process.env (e.g. OpenAI client)
+import 'dotenv/config';
+
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
