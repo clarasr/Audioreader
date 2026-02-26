@@ -1,87 +1,108 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-import { useState, useCallback, useEffect } from 'react';
-import { useLibrary } from './hooks/useLibrary.js';
-import { LibraryScreen } from './screens/LibraryScreen.js';
-import { BookDetailScreen } from './screens/BookDetailScreen.js';
-import { PlayerScreen } from './screens/PlayerScreen.js';
-import type { Screen, Book } from './types/index.js';
+import { useState, useCallback } from 'react';
+import { BookMetadata } from './types';
+import { parseAudioBook } from './utils/metadata';
+import { uploadAudioFile } from './api/upload';
+import UploadZone from './components/UploadZone';
+import BookView from './components/BookView';
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>({ name: 'library' });
-  const { books, loading, addBook, getFile } = useLibrary();
+  const [book, setBook] = useState<BookMetadata | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAddBook = useCallback(async (file: File) => {
-    const book = await addBook(file);
-    setScreen({ name: 'bookDetail', book });
-  }, [addBook]);
+  const handleFileSelect = useCallback(
+    async (file: File) => {
+      setLoading(true);
+      setError(null);
+      setUploadPercent(null);
 
-  const handleOpenBook = useCallback((book: Book) => {
-    setScreen({ name: 'bookDetail', book });
-  }, []);
-
-  const handlePlayChapter = useCallback((book: Book, chapterIndex: number, startPositionSeconds = 0) => {
-    const file = getFile(book.id);
-    if (!file) {
-      // Book was loaded from DB but file isn't in memory — need to re-upload
-      alert('Please re-open the audio file to start playback. Audio files are not stored on the server.');
-      return;
-    }
-    setScreen({ name: 'player', book, chapterIndex, startPositionSeconds });
-  }, [getFile]);
-
-  const playerFile = screen.name === 'player' ? getFile(screen.book.id) : null;
-
-  useEffect(() => {
-    if (screen.name === 'player' && !playerFile) {
-      setScreen({ name: 'bookDetail', book: screen.book });
-    }
-  }, [screen, playerFile]);
-
-  switch (screen.name) {
-    case 'library':
-      return (
-        <LibraryScreen
-          books={books}
-          loading={loading}
-          onOpenBook={handleOpenBook}
-          onAddBook={handleAddBook}
-        />
-      );
-
-    case 'bookDetail':
-      return (
-        <BookDetailScreen
-          book={screen.book}
-          onBack={() => setScreen({ name: 'library' })}
-          onPlayChapter={(chapterIndex, startPos) =>
-            handlePlayChapter(screen.book, chapterIndex, startPos)
-          }
-        />
-      );
-
-    case 'player': {
-      if (!playerFile) {
-        return null;
+      if (book) {
+        if (book.coverUrl) URL.revokeObjectURL(book.coverUrl);
+        URL.revokeObjectURL(book.fileUrl);
       }
-      return (
-        <PlayerScreen
-          book={screen.book}
-          chapterIndex={screen.chapterIndex}
-          startPositionSeconds={screen.startPositionSeconds}
-          file={playerFile}
-          onBack={() => setScreen({ name: 'bookDetail', book: screen.book })}
-        />
-      );
-    }
 
-    case 'settings':
-      return (
-        <div className="w-full h-screen bg-background text-white flex items-center justify-center font-sans">
-          Settings (Phase 6)
+      try {
+        // Parse metadata and upload to server in parallel
+        const [metadata, fileId] = await Promise.all([
+          parseAudioBook(file),
+          uploadAudioFile(file, setUploadPercent),
+        ]);
+        setBook({ ...metadata, fileId });
+      } catch (err) {
+        console.error(err);
+        if (err instanceof Error && err.message.includes('upload')) {
+          setError('Could not upload the file to the server. Make sure the server is running.');
+        } else {
+          setError('Could not read this audio file. Please try a different file.');
+        }
+      } finally {
+        setLoading(false);
+        setUploadPercent(null);
+      }
+    },
+    [book]
+  );
+
+  const handleReset = useCallback(() => {
+    if (book) {
+      if (book.coverUrl) URL.revokeObjectURL(book.coverUrl);
+      URL.revokeObjectURL(book.fileUrl);
+    }
+    setBook(null);
+    setError(null);
+  }, [book]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-950">
+        <div className="text-center w-72">
+          <div className="w-10 h-10 border-[3px] border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          {uploadPercent === null ? (
+            <p className="text-gray-400 text-sm">Reading metadata…</p>
+          ) : (
+            <>
+              <p className="text-gray-400 text-sm mb-3">
+                Uploading… {uploadPercent}%
+              </p>
+              <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-indigo-500 rounded-full transition-all duration-200"
+                  style={{ width: `${uploadPercent}%` }}
+                />
+              </div>
+            </>
+          )}
         </div>
-      );
+      </div>
+    );
   }
+
+  if (book) {
+    return <BookView book={book} onBack={handleReset} />;
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-950 p-8">
+      <div className="mb-2 flex items-center gap-2">
+        <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center">
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+          </svg>
+        </div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">AudioReader</h1>
+      </div>
+      <p className="text-gray-500 text-sm mb-10">
+        Upload an audiobook to browse its chapters
+      </p>
+
+      {error && (
+        <div className="mb-6 w-full max-w-lg px-4 py-3 bg-red-950/50 border border-red-800 rounded-xl text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      <UploadZone onFileSelect={handleFileSelect} />
+    </div>
+  );
 }
