@@ -4,3 +4,4 @@ dist/
 *.local
 data/
 *.db
+*.deb
